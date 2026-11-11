@@ -134,6 +134,19 @@ def sobrat(proj, car, short, slug):
                                'opts': [{'id': oid(o['code']), 'def': bool(std), 'pre': bool(o['selected'] and not std), 'promo': False, 'promoTo': ''}]})
         order = {'paint': 0, 'wheel': 1, 'int': 2, 'choice': 3}
         secs.sort(key=lambda s: order[s['role']])
+        # у производителя часть вариантов в списке есть, а собрать с ними машину нельзя (остатки модели): показываем только то, для чего снят кадр
+        colors = sorted((o['code'] for t in v['types'] if t['code'] == 'sys_car_body_color' for o in t['opts']), key=len, reverse=True)
+        seen = set()
+        for key in v['ext']:
+            col = next(c for c in colors if key.startswith(c + '_'))
+            seen |= {oid(p) for p in [col] + key[len(col) + 1:].split('_') if p != '0'}
+        for sc in secs:
+            if sc['sku'] in v['extDims']:
+                gone = [options[o['id']]['name'] for o in sc['opts'] if o['id'] not in seen]
+                if gone: print('  нет в продаже, убрано:', name, sc['title'], gone, flush=True)
+                sc['opts'] = [o for o in sc['opts'] if o['id'] in seen]
+                if sc['opts'] and not any(o['def'] for o in sc['opts']): sc['opts'][0]['def'] = True
+        extras = [e for e in extras if e['sku'] not in v['extDims'] or e['opts'][0]['id'] in seen or e['opts'][0]['def']]
         colors = sorted((o['code'] for t in v['types'] if t['code'] == 'sys_car_body_color' for o in t['opts']), key=len, reverse=True)
         for key, urls in v['ext'].items():
             col = next(c for c in colors if key.startswith(c + '_'))          # код цвета может содержать «_»
@@ -162,6 +175,12 @@ def sobrat(proj, car, short, slug):
     groups = [{'id': e, 'label': ENERGY[e][0], 'sub': ENERGY[e][1]} for e in energies] if len(energies) > 1 else []
     if not groups:
         for v in vers: v['group'] = ''
+    import itertools
+    for v in vers:
+        by = {sc['sku']: sc for sc in v['secs']}
+        lists = [[o['id'] for o in by[k]['opts']] + ([None] if by[k]['role'] == 'extra' and not by[k]['opts'][0]['def'] else []) for k in v['vehicleSkus'] if k in by]
+        miss = [c for c in (v['codePrefix'] + '_'.join(x for x in combo if x) for combo in itertools.product(*lists)) if c not in have]
+        if miss: print(f'ВНИМАНИЕ: {v["name"]} – нет кадра для {len(miss)} сборок из {len(list(itertools.product(*lists)))}:', miss[:6], flush=True)
     data = {'car': car, 'short': short, 'groups': groups, 'groupsTitle': 'Силовая установка', 'versions': vers, 'options': options, 'have': have, 'ang': ang, 'int': ints,
             'paths': {'ext': IMG + '/ext/{code}--{shot}.webp', 'int': IMG + '/int/{code}--{shot}.webp'}, 'shots': SHOTS}
     js = json.dumps(data, ensure_ascii=False, separators=(',', ':'))
